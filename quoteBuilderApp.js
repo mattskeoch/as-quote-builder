@@ -60,12 +60,7 @@
     }).format(value);
   }
 
-  function formatWeight(grams) {
-    if (typeof grams !== 'number' || Number.isNaN(grams)) return '';
-    return `${(grams / 1000).toFixed(1)} kg`;
-  }
-
-  function buildSummaryItems(steps, selections) {
+  function buildSummaryItems(steps, selections, vehicleSelection) {
     const items = [];
     steps.forEach((step) => {
       const selected = selections[step.id];
@@ -73,11 +68,15 @@
       const details = selected
         .map((product) => {
           const parts = [product.name || product.title || product.id];
+          if (
+            step.id === VEHICLE_STEP_ID &&
+            vehicleSelection &&
+            vehicleSelection.year
+          ) {
+            parts.push(vehicleSelection.year);
+          }
           if (typeof product.price === 'number') {
             parts.push(formatCurrency(product.price));
-          }
-          if (typeof product.weight === 'number') {
-            parts.push(formatWeight(product.weight));
           }
           return parts.join(' · ');
         })
@@ -100,9 +99,6 @@
         <p><strong>Store:</strong> ${escapeHtml(storeLabel)}</p>
         <ul>${listItems}</ul>
         <p><strong>Total:</strong> ${formatCurrency(totals.totalPrice || 0)}</p>
-        <p><strong>Total weight:</strong> ${
-          totals.totalWeight ? formatWeight(totals.totalWeight) : '—'
-        }</p>
       </div>
     `;
   }
@@ -119,9 +115,6 @@
       <p><strong>Store:</strong> ${escapeHtml(storeLabel)}</p>
       <ul>${listItems}</ul>
       <p><strong>Total:</strong> ${formatCurrency(totals.totalPrice || 0)}</p>
-      <p><strong>Total weight:</strong> ${
-        totals.totalWeight ? formatWeight(totals.totalWeight) : '—'
-      }</p>
     `;
   }
 
@@ -173,7 +166,71 @@
         onFormChange: (field, value) => this.handleFormChange(field, value),
         onFieldBlur: (field) => this.handleFieldBlur(field),
         onEmptyStateBack: () => this.goToPreviousStep(),
+        onVehicleMakeChange: (make) => this.handleVehicleMakeChange(make),
+        onVehicleModelChange: (model) => this.handleVehicleModelChange(model),
+        onVehicleYearChange: (year) => this.handleVehicleYearChange(year),
       });
+    }
+
+    getVehicleProducts() {
+      return this.products.filter((product) => product.stepId === VEHICLE_STEP_ID);
+    }
+
+    getVehicleOptions() {
+      const vehicles = this.getVehicleProducts();
+      const makes = [];
+      const modelsByMake = {};
+      const yearsByMakeModel = {};
+
+      vehicles.forEach((vehicle) => {
+        const make = vehicle.make || 'Other';
+        const model = vehicle.model || vehicle.name || vehicle.id;
+
+        if (!makes.includes(make)) {
+          makes.push(make);
+        }
+
+        if (!modelsByMake[make]) {
+          modelsByMake[make] = [];
+        }
+        if (!modelsByMake[make].includes(model)) {
+          modelsByMake[make].push(model);
+        }
+
+        const key = `${make}|||${model}`;
+        const years = Array.isArray(vehicle.years) ? vehicle.years : [];
+        yearsByMakeModel[key] = years
+          .map((year) => String(year).trim())
+          .filter((year) => year.length > 0);
+      });
+
+      makes.sort((a, b) => a.localeCompare(b));
+      Object.keys(modelsByMake).forEach((make) => {
+        modelsByMake[make].sort((a, b) => a.localeCompare(b));
+      });
+      Object.keys(yearsByMakeModel).forEach((key) => {
+        const seen = new Set();
+        yearsByMakeModel[key] = yearsByMakeModel[key]
+          .filter((year) => {
+            if (seen.has(year)) return false;
+            seen.add(year);
+            return true;
+          })
+          .sort((a, b) => a.localeCompare(b));
+      });
+
+      return { makes, modelsByMake, yearsByMakeModel };
+    }
+
+    findVehicleProduct(make, model) {
+      if (!make || !model) return null;
+      return (
+        this.getVehicleProducts().find(
+          (product) =>
+            (product.make || '').toLowerCase() === make.toLowerCase() &&
+            (product.model || '').toLowerCase() === model.toLowerCase()
+        ) || null
+      );
     }
 
     initialiseProducts() {
@@ -191,6 +248,20 @@
             : product.weight
             ? Number(product.weight)
             : undefined,
+        years:
+          product.stepId === VEHICLE_STEP_ID && Array.isArray(product.years)
+            ? product.years
+                .map((year) => String(year).trim())
+                .filter((year) => year.length > 0)
+            : product.years,
+        make:
+          product.stepId === VEHICLE_STEP_ID
+            ? product.make || ''
+            : product.make,
+        model:
+          product.stepId === VEHICLE_STEP_ID
+            ? product.model || product.name || product.id
+            : product.model,
       }));
       this.selectionManager.updateProducts(this.products);
       this.stepManager.products = this.products;
@@ -227,7 +298,60 @@
       const vehicleId = this.queryParams.get('vehicle');
       if (vehicleId && this.products.some((p) => p.id === vehicleId)) {
         this.selectionManager.setSelection(VEHICLE_STEP_ID, vehicleId);
+        const product = this.products.find((p) => p.id === vehicleId);
+        if (product) {
+          this.selectionManager.setVehicleSelection({ make: product.make, model: product.model });
+        }
       }
+    }
+
+    handleVehicleMakeChange(make) {
+      const current = this.selectionManager.getVehicleSelection();
+      if ((current.make || '') === (make || '')) {
+        return;
+      }
+      this.selectionManager.setVehicleSelection({ make });
+      this.selectionManager.setSelection(VEHICLE_STEP_ID, null);
+      const steps = this.getVisibleSteps();
+      this.selectionManager.clearSelectionFromIndex(1, steps);
+      this.stepManager.refreshVisibility();
+      this.stepManager.setActiveStepById(VEHICLE_STEP_ID);
+      this.persistState();
+      this.render();
+    }
+
+    handleVehicleModelChange(model) {
+      const current = this.selectionManager.getVehicleSelection();
+      if ((current.model || '') === (model || '')) {
+        return;
+      }
+      this.selectionManager.setVehicleSelection({ model });
+      this.selectionManager.setSelection(VEHICLE_STEP_ID, null);
+      const steps = this.getVisibleSteps();
+      this.selectionManager.clearSelectionFromIndex(1, steps);
+      this.stepManager.refreshVisibility();
+      this.stepManager.setActiveStepById(VEHICLE_STEP_ID);
+      this.persistState();
+      this.render();
+    }
+
+    handleVehicleYearChange(year) {
+      const current = this.selectionManager.getVehicleSelection();
+      if ((current.year || '') === (year || '')) {
+        return;
+      }
+      this.selectionManager.setVehicleSelection({ year });
+      const vehicleSelection = this.selectionManager.getVehicleSelection();
+      const product = this.findVehicleProduct(vehicleSelection.make, vehicleSelection.model);
+      if (vehicleSelection.year && product) {
+        this.selectionManager.setSelection(VEHICLE_STEP_ID, [product.id]);
+      } else {
+        this.selectionManager.setSelection(VEHICLE_STEP_ID, null);
+      }
+      this.stepManager.refreshVisibility();
+      this.stepManager.setActiveStepById(VEHICLE_STEP_ID);
+      this.persistState();
+      this.render();
     }
 
     computeInitialStore() {
@@ -328,12 +452,22 @@
         const variantId = product.variantIdByStore?.[targetStore];
         const enrichment = variantId ? merged[String(variantId)] : null;
         if (!enrichment) return product;
+        const parsedPrice =
+          typeof enrichment.price === 'number'
+            ? enrichment.price
+            : typeof enrichment.price === 'string' && enrichment.price.trim() !== ''
+            ? Number(enrichment.price)
+            : product.price;
+        const parsedWeight =
+          typeof enrichment.weight === 'number'
+            ? enrichment.weight
+            : typeof enrichment.weight === 'string' && enrichment.weight.trim() !== ''
+            ? Number(enrichment.weight)
+            : product.weight;
         return {
           ...product,
-          price:
-            typeof enrichment.price === 'number' ? enrichment.price : product.price,
-          weight:
-            typeof enrichment.weight === 'number' ? enrichment.weight : product.weight,
+          price: Number.isFinite(parsedPrice) ? parsedPrice : product.price,
+          weight: Number.isFinite(parsedWeight) ? parsedWeight : product.weight,
           image: enrichment.image || product.image,
           handle: enrichment.handle || product.handle,
           stock: enrichment.stock || product.stock,
@@ -342,6 +476,9 @@
       this.selectionManager.updateProducts(this.products);
       this.stepManager.products = this.products;
       this.persistState();
+      if (this.initialised) {
+        this.render();
+      }
     }
 
     getVisibleSteps() {
@@ -517,7 +654,8 @@
         this.render();
         return;
       }
-      const store = this.forcedStore || (this.selectionManager.getFormValues().state === 'WA' ? 'linex' : this.currentStore);
+      const stateValue = (this.selectionManager.getFormValues().state || '').toUpperCase();
+      const store = this.forcedStore || (stateValue === 'WA' ? 'linex' : this.currentStore);
       this.currentStore = normaliseStore(store);
       const lineItems = this.selectionManager.getLineItemsForStore(this.currentStore);
       if (!lineItems.length) {
@@ -544,6 +682,7 @@
         items: lineItems,
         meta: {
           vehicleId: this.selectionManager.getVehicleId(),
+          vehicleSelection: this.selectionManager.getVehicleSelection(),
           selections: { ...this.selectionManager.stepSelections },
         },
       };
@@ -558,7 +697,8 @@
       try {
         const response = await fetch('/api/quote-builder/draft-order', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify(payload),
         });
         if (!response.ok) {
@@ -568,7 +708,11 @@
         this.statusMessage = null;
         this.isSubmitting = false;
         const totals = this.selectionManager.getTotals();
-        const summaryItems = buildSummaryItems(this.getVisibleSteps(), this.selectionManager.getAllSelectedProducts());
+        const summaryItems = buildSummaryItems(
+          this.getVisibleSteps(),
+          this.selectionManager.getAllSelectedProducts(),
+          this.selectionManager.getVehicleSelection()
+        );
         const storeLabel = STORE_LABELS[this.currentStore] || this.currentStore;
         this.confirmationState = {
           visible: true,
@@ -595,8 +739,9 @@
       const activeStep = this.getActiveStep();
       const activeIndex = this.stepManager.activeIndex;
       const selectionsByStep = this.selectionManager.getAllSelectedProducts();
+      const vehicleSelection = this.selectionManager.getVehicleSelection();
       const totals = this.selectionManager.getTotals();
-      const summaryItems = buildSummaryItems(steps, selectionsByStep);
+      const summaryItems = buildSummaryItems(steps, selectionsByStep, vehicleSelection);
       const storeLabel = STORE_LABELS[this.currentStore] || this.currentStore;
       const selectedIds = activeStep
         ? this.selectionManager.getSelectedProductIds(activeStep.id)
@@ -661,7 +806,6 @@
         summary: {
           items: summaryItems,
           totalPrice: totals.totalPrice,
-          totalWeight: totals.totalWeight,
           storeLabel,
         },
         step: {
@@ -670,6 +814,8 @@
           selectedProductIds: selectedIds,
           helperText: stepHelperText,
           isEmpty: stepIsEmpty,
+          vehicleOptions: this.getVehicleOptions(),
+          vehicleSelection,
         },
         navigation: navigationState,
         form: {

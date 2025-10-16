@@ -131,6 +131,9 @@
         onFormChange: handlers.onFormChange || function noop() {},
         onFieldBlur: handlers.onFieldBlur || function noop() {},
         onEmptyStateBack: handlers.onEmptyStateBack || function noop() {},
+        onVehicleMakeChange: handlers.onVehicleMakeChange || function noop() {},
+        onVehicleModelChange: handlers.onVehicleModelChange || function noop() {},
+        onVehicleYearChange: handlers.onVehicleYearChange || function noop() {},
       };
 
       this.activeStepId = null;
@@ -199,6 +202,19 @@
         this.main.addEventListener(
           'change',
           (event) => {
+            const vehicleSelect = event.target.closest('[data-vehicle-select]');
+            if (vehicleSelect) {
+              const type = vehicleSelect.dataset.vehicleSelect;
+              const value = vehicleSelect.value;
+              if (type === 'make') {
+                this.handlers.onVehicleMakeChange(value);
+              } else if (type === 'model') {
+                this.handlers.onVehicleModelChange(value);
+              } else if (type === 'year') {
+                this.handlers.onVehicleYearChange(value);
+              }
+              return;
+            }
             const field = event.target.closest('[data-field-id]');
             if (!field) return;
             const { fieldId } = field.dataset;
@@ -253,17 +269,12 @@
 
     renderSummary(summaryState) {
       if (!this.summary || !summaryState) return;
-      const { items, totalPrice, totalWeight, storeLabel } = summaryState;
+      const { items, totalPrice, storeLabel } = summaryState;
       const summaryItems = buildSummaryList(items);
       const totals = `
         <div class="qb-summary__totals">
           <div><strong>Total</strong>: ${
             typeof totalPrice === 'number' ? formatCurrency(totalPrice) : '—'
-          }</div>
-          <div><strong>Total weight</strong>: ${
-            typeof totalWeight === 'number' && totalWeight > 0
-              ? formatWeight(totalWeight)
-              : '—'
           }</div>
         </div>
       `;
@@ -331,9 +342,80 @@
       return `<form class="qb-form" novalidate>${fieldsHtml}</form>`;
     }
 
+    renderVehicleSelectors(options, selection) {
+      const vehicleOptions = options || {};
+      const vehicleSelection = selection || {};
+      const { makes = [], modelsByMake = {}, yearsByMakeModel = {} } = vehicleOptions;
+      const selectedMake = vehicleSelection.make || '';
+      const selectedModel = vehicleSelection.model || '';
+      const selectedYear = vehicleSelection.year || '';
+
+      const models = selectedMake ? modelsByMake[selectedMake] || [] : [];
+      const yearsKey = `${selectedMake}|||${selectedModel}`;
+      const years = selectedMake && selectedModel ? yearsByMakeModel[yearsKey] || [] : [];
+      const modelDisabled = !selectedMake || models.length === 0;
+      const yearDisabled = !selectedMake || !selectedModel || years.length === 0;
+
+      const makeOptions = ['<option value="">Select make…</option>']
+        .concat(
+          makes.map((make) => {
+            const selected = make === selectedMake ? 'selected' : '';
+            return `<option value="${escapeHtml(make)}" ${selected}>${escapeHtml(make)}</option>`;
+          })
+        )
+        .join('');
+
+      const modelOptions = ['<option value="">Select model…</option>']
+        .concat(
+          models.map((model) => {
+            const selected = model === selectedModel ? 'selected' : '';
+            return `<option value="${escapeHtml(model)}" ${selected}>${escapeHtml(model)}</option>`;
+          })
+        )
+        .join('');
+
+      const yearOptions = ['<option value="">Select year…</option>']
+        .concat(
+          years.map((year) => {
+            const selected = year === selectedYear ? 'selected' : '';
+            return `<option value="${escapeHtml(year)}" ${selected}>${escapeHtml(year)}</option>`;
+          })
+        )
+        .join('');
+
+      return `
+        <div class="qb-vehicle">
+          <div class="qb-field">
+            <label for="qb-vehicle-make">Make *</label>
+            <select id="qb-vehicle-make" data-vehicle-select="make" aria-required="true">${makeOptions}</select>
+          </div>
+          <div class="qb-field">
+            <label for="qb-vehicle-model">Model *</label>
+            <select id="qb-vehicle-model" data-vehicle-select="model" aria-required="true" ${
+              modelDisabled ? 'disabled' : ''
+            }>${modelOptions}</select>
+          </div>
+          <div class="qb-field">
+            <label for="qb-vehicle-year">Year *</label>
+            <select id="qb-vehicle-year" data-vehicle-select="year" aria-required="true" ${
+              yearDisabled ? 'disabled' : ''
+            }>${yearOptions}</select>
+          </div>
+        </div>
+      `;
+    }
+
     renderStep(stepState, formState) {
       if (!this.main || !stepState) return;
-      const { step, products, selectedProductIds, helperText, isEmpty } = stepState;
+      const {
+        step,
+        products,
+        selectedProductIds,
+        helperText,
+        isEmpty,
+        vehicleOptions,
+        vehicleSelection,
+      } = stepState;
       this.activeStepId = step?.id || null;
 
       const header = step
@@ -352,6 +434,8 @@
       let content = '';
       if (!step) {
         content = '<p>No steps available.</p>';
+      } else if (step.id === 'vehicle_select') {
+        content = this.renderVehicleSelectors(vehicleOptions, vehicleSelection);
       } else if (step.renderType === 'form') {
         content = this.renderForm(step, formState);
       } else if (isEmpty) {

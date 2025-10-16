@@ -114,10 +114,38 @@
       }
     ],
     products: [
-      { id: 'ford_ranger', stepId: 'vehicle_select', name: 'Ford Ranger', make: 'Ford', model: 'Ranger' },
-      { id: 'toyota_hilux', stepId: 'vehicle_select', name: 'Toyota Hilux', make: 'Toyota', model: 'Hilux' },
-      { id: 'toyota_79', stepId: 'vehicle_select', name: 'Toyota 79 Series', make: 'Toyota', model: '79 Series' },
-      { id: 'chevy_silverado', stepId: 'vehicle_select', name: 'Chevrolet Silverado', make: 'Chevrolet', model: 'Silverado' },
+      {
+        id: 'ford_ranger',
+        stepId: 'vehicle_select',
+        name: 'Ford Ranger',
+        make: 'Ford',
+        model: 'Ranger',
+        years: ['2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024']
+      },
+      {
+        id: 'toyota_hilux',
+        stepId: 'vehicle_select',
+        name: 'Toyota Hilux',
+        make: 'Toyota',
+        model: 'Hilux',
+        years: ['2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024']
+      },
+      {
+        id: 'toyota_79',
+        stepId: 'vehicle_select',
+        name: 'Toyota 79 Series',
+        make: 'Toyota',
+        model: '79 Series',
+        years: ['2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024']
+      },
+      {
+        id: 'chevy_silverado',
+        stepId: 'vehicle_select',
+        name: 'Chevrolet Silverado',
+        make: 'Chevrolet',
+        model: 'Silverado',
+        years: ['2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024']
+      },
 
       { id: 'build_tray_only', stepId: 'build_type', name: 'Tray only' },
       { id: 'build_tray_canopy', stepId: 'build_type', name: 'Tray & canopy' },
@@ -280,7 +308,7 @@
   }
 
   .qb__header {
-    max-width: 1200px;
+    max-width: 1360px;
     margin: 0 auto 24px;
     display: flex;
     flex-direction: column;
@@ -368,18 +396,18 @@
   }
 
   .qb__body {
-    max-width: 1200px;
+    max-width: 1360px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(260px, 360px);
-    gap: 24px;
+    grid-template-columns: minmax(0, 3.25fr) minmax(320px, 420px);
+    gap: 32px;
     align-items: start;
   }
 
   .qb__main {
     background: var(--qb-surface);
     border-radius: var(--qb-radius);
-    padding: 24px;
+    padding: 28px;
     border: 1px solid var(--qb-border);
     min-height: 420px;
   }
@@ -389,7 +417,7 @@
     top: 24px;
     background: var(--qb-surface);
     border-radius: var(--qb-radius);
-    padding: 24px;
+    padding: 28px;
     border: 1px solid var(--qb-border);
     box-shadow: 0 8px 24px rgba(15, 28, 36, 0.06);
   }
@@ -479,6 +507,23 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
+  }
+
+  .qb-vehicle {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .qb-vehicle select {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .qb-vehicle select:disabled {
+    background: #f0f4f6;
+    color: var(--qb-muted);
+    cursor: not-allowed;
   }
 
   .qb-card {
@@ -756,6 +801,10 @@
     .qb__main,
     .qb__summary {
       padding: 16px;
+    }
+
+    .qb-vehicle {
+      grid-template-columns: 1fr;
     }
 
     .qb-button {

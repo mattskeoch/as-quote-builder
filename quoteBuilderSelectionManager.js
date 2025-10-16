@@ -1,6 +1,6 @@
 (function () {
   const VEHICLE_STEP_ID = 'vehicle_select';
-  const STORAGE_VERSION = '1.0.0';
+  const STORAGE_VERSION = '1.1.0';
 
   function normaliseStore(store) {
     return store === 'linex' ? 'linex' : 'autospec';
@@ -23,6 +23,11 @@
         state: '',
         postcode: '',
         notes: '',
+      };
+      this.vehicleSelection = {
+        make: '',
+        model: '',
+        year: '',
       };
       this.meta = {
         version: STORAGE_VERSION,
@@ -64,12 +69,21 @@
           ...state.formValues,
         };
       }
+
+      if (state.vehicleSelection && typeof state.vehicleSelection === 'object') {
+        this.vehicleSelection = {
+          make: state.vehicleSelection.make || '',
+          model: state.vehicleSelection.model || '',
+          year: state.vehicleSelection.year || '',
+        };
+      }
     }
 
     getPersistedState() {
       return {
         stepSelections: this.stepSelections,
         formValues: this.formValues,
+        vehicleSelection: this.vehicleSelection,
         meta: this.meta,
       };
     }
@@ -84,6 +98,11 @@
         state: '',
         postcode: '',
         notes: '',
+      };
+      this.vehicleSelection = {
+        make: '',
+        model: '',
+        year: '',
       };
     }
 
@@ -104,6 +123,28 @@
 
     getFormValues() {
       return { ...this.formValues };
+    }
+
+    setVehicleSelection(partial) {
+      if (!partial || typeof partial !== 'object') return;
+      const next = { ...this.vehicleSelection };
+      if (Object.prototype.hasOwnProperty.call(partial, 'make')) {
+        next.make = partial.make || '';
+        next.model = '';
+        next.year = '';
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'model')) {
+        next.model = partial.model || '';
+        next.year = '';
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'year')) {
+        next.year = partial.year || '';
+      }
+      this.vehicleSelection = next;
+    }
+
+    getVehicleSelection() {
+      return { ...this.vehicleSelection };
     }
 
     toggleSelection(stepId, productId, mode) {
@@ -148,13 +189,45 @@
     setSelection(stepId, productIds) {
       if (!productIds) {
         delete this.stepSelections[stepId];
+        window.dispatchEvent(
+          new CustomEvent('qb:event', {
+            detail: {
+              type: 'deselected',
+              stepId,
+              productId: null,
+            },
+          })
+        );
         return;
       }
 
       const ids = Array.isArray(productIds) ? productIds : [productIds];
       const filtered = ids.filter((id) => this.productsById[id]);
       if (filtered.length) {
+        const previous = this.stepSelections[stepId] || [];
+        const previousKey = previous.join(',');
+        const nextKey = filtered.join(',');
         this.stepSelections[stepId] = filtered;
+        if (previousKey === nextKey) {
+          return;
+        }
+        const product = this.productsById[filtered[0]];
+        if (stepId === VEHICLE_STEP_ID && product) {
+          this.vehicleSelection = {
+            make: product.make || this.vehicleSelection.make || '',
+            model: product.model || this.vehicleSelection.model || '',
+            year: this.vehicleSelection.year || '',
+          };
+        }
+        window.dispatchEvent(
+          new CustomEvent('qb:event', {
+            detail: {
+              type: 'selected',
+              stepId,
+              productId: filtered[0],
+            },
+          })
+        );
       } else {
         delete this.stepSelections[stepId];
       }
@@ -216,7 +289,6 @@
     getTotals() {
       const lineItems = [];
       let totalPrice = 0;
-      let totalWeight = 0;
 
       Object.keys(this.stepSelections).forEach((stepId) => {
         this.stepSelections[stepId].forEach((productId) => {
@@ -225,9 +297,6 @@
           if (typeof product.price === 'number') {
             totalPrice += product.price;
           }
-          if (typeof product.weight === 'number') {
-            totalWeight += product.weight;
-          }
           lineItems.push({ productId, stepId });
         });
       });
@@ -235,7 +304,6 @@
       return {
         lineItems,
         totalPrice,
-        totalWeight,
       };
     }
 
