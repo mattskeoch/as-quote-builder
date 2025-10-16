@@ -1,0 +1,9 @@
+{
+  "sections": {
+    "main": {
+      "type": "quote-builder",
+      "settings": {}
+    }
+  },
+  "order": ["main"]
+}

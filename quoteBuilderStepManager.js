@@ -1,104 +1,144 @@
-// quoteBuilderStepManager.js
-
-class QuoteBuilderStepManager {
-  constructor(allStepsData, productsData, selectionManager) {
-    this.allSteps = allStepsData;      // [{ id, renderType, selectionMode, required, visibleWhen, ... }]
-    this.allProducts = productsData;   // products referencing stepId
-    this.selectionManager = selectionManager;
-
-    this.visibleSteps = [];
-    this.currentStepIndex = -1;
-    this.updateVisibleStepsList();
+(function () {
+  function matchesRequirement(selectionManager, requirement) {
+    if (!requirement || !requirement.stepId) return true;
+    const selectedIds = selectionManager.getSelectedProductIds(requirement.stepId);
+    if (!selectedIds.length) return false;
+    if (typeof requirement.equals === 'undefined') {
+      return selectedIds.length > 0;
+    }
+    return selectedIds.includes(requirement.equals);
   }
 
-  /* ---------- Visibility evaluation (data-driven) ---------- */
-  evaluateVisibleWhen(visibleWhen, selections) {
+  function evaluateVisibility(selectionManager, visibleWhen) {
     if (!visibleWhen) return true;
-
-    const satisfies = (req) => {
-      if (!req || !req.stepId) return true;
-      const sel = selections[req.stepId];
-      if (!sel) return false;
-
-      // For single selection: compare selected object's id
-      if (!Array.isArray(sel)) {
-        return sel.id === req.equals;
-      }
-      // For multi-selection: visible if any selected item matches
-      return sel.some((p) => p?.id === req.equals);
-    };
-
     if (visibleWhen.requires) {
-      return satisfies(visibleWhen.requires);
+      return matchesRequirement(selectionManager, visibleWhen.requires);
     }
-
     if (Array.isArray(visibleWhen.anyOf)) {
-      return visibleWhen.anyOf.some((r) => satisfies(r));
+      return visibleWhen.anyOf.some((req) => matchesRequirement(selectionManager, req));
     }
-
     if (Array.isArray(visibleWhen.allOf)) {
-      return visibleWhen.allOf.every((r) => satisfies(r));
+      return visibleWhen.allOf.every((req) => matchesRequirement(selectionManager, req));
     }
-
-    // If structure unrecognized, default to visible
     return true;
   }
 
-  updateVisibleStepsList() {
-    const currentSelections = this.selectionManager.selections;
-
-    this.visibleSteps = this.allSteps.filter((step) => {
-      return this.evaluateVisibleWhen(step.visibleWhen, currentSelections);
-    });
-
-    // Clamp currentStepIndex if it went out of bounds after visibility change
-    if (this.currentStepIndex >= this.visibleSteps.length) {
-      this.currentStepIndex = this.visibleSteps.length - 1;
+  class QuoteBuilderStepManager {
+    constructor(steps, products, selectionManager, options = {}) {
+      this.allSteps = Array.isArray(steps) ? steps : [];
+      this.products = Array.isArray(products) ? products : [];
+      this.selectionManager = selectionManager;
+      this.debug = !!options.debug;
+      this.activeIndex = 0;
+      this.visibleSteps = this.computeVisibleSteps();
     }
-    if (this.currentStepIndex < 0 && this.visibleSteps.length > 0) {
-      this.currentStepIndex = 0;
+
+    logDebug(message, payload) {
+      if (!this.debug) return;
+      // eslint-disable-next-line no-console
+      console.debug('[QuoteBuilderStepManager]', message, payload || '');
     }
-  }
 
-  navigateTo(stepIndex) {
-    if (stepIndex >= 0 && stepIndex < this.visibleSteps.length) {
-      this.currentStepIndex = stepIndex;
-      return this.getCurrentStep();
-    }
-    return null;
-  }
-
-  getCurrentStep() {
-    return this.visibleSteps[this.currentStepIndex] || null;
-  }
-
-  getProductsForStep(stepId) {
-    const selectedVehicle = this.selectionManager.selections['vehicle_select'];
-    const selectedVehicleId = selectedVehicle?.id;
-
-    return this.allProducts.filter((product) => {
-      if (product.stepId !== stepId) return false;
-
-      // Vehicle compatibility check (if specified)
-      if (Array.isArray(product.compatibleVehicles) && selectedVehicleId) {
-        if (!product.compatibleVehicles.includes(selectedVehicleId)) {
-          return false;
-        }
+    computeVisibleSteps() {
+      const visible = this.allSteps.filter((step) =>
+        evaluateVisibility(this.selectionManager, step.visibleWhen)
+      );
+      if (this.activeIndex >= visible.length) {
+        this.activeIndex = Math.max(visible.length - 1, 0);
       }
+      return visible;
+    }
 
-      return true;
-    });
+    refreshVisibility() {
+      this.visibleSteps = this.computeVisibleSteps();
+      return this.visibleSteps;
+    }
+
+    getVisibleSteps() {
+      return this.visibleSteps;
+    }
+
+    getStepIndex(stepId) {
+      return this.visibleSteps.findIndex((step) => step.id === stepId);
+    }
+
+    getActiveStep() {
+      return this.visibleSteps[this.activeIndex] || null;
+    }
+
+    setActiveStepByIndex(index) {
+      if (index < 0 || index >= this.visibleSteps.length) {
+        return this.getActiveStep();
+      }
+      this.activeIndex = index;
+      return this.getActiveStep();
+    }
+
+    setActiveStepById(stepId) {
+      const index = this.getStepIndex(stepId);
+      if (index > -1) {
+        this.activeIndex = index;
+      }
+      return this.getActiveStep();
+    }
+
+    goToNext() {
+      if (this.activeIndex < this.visibleSteps.length - 1) {
+        this.activeIndex += 1;
+      }
+      return this.getActiveStep();
+    }
+
+    goToPrevious() {
+      if (this.activeIndex > 0) {
+        this.activeIndex -= 1;
+      }
+      return this.getActiveStep();
+    }
+
+    getProductsForStep(stepId) {
+      const vehicleId = this.selectionManager.getVehicleId();
+      return this.products
+        .filter((product) => product.stepId === stepId)
+        .map((product) => {
+          const compatibility = Array.isArray(product.compatibleVehicles)
+            ? product.compatibleVehicles
+            : null;
+          const isCompatible =
+            !vehicleId ||
+            !compatibility ||
+            compatibility.length === 0 ||
+            compatibility.includes(vehicleId);
+          return {
+            ...product,
+            isCompatible,
+          };
+        });
+    }
+
+    getProductsGroupedForStep(stepId) {
+      const items = this.getProductsForStep(stepId);
+      return {
+        compatible: items.filter((item) => item.isCompatible),
+        incompatible: items.filter((item) => !item.isCompatible),
+      };
+    }
   }
 
-  isLastVisibleStep() {
-    return this.currentStepIndex === this.visibleSteps.length - 1;
+  function registerModule(name, module) {
+    if (!name || !module) return;
+    if (
+      window.QUOTE_BUILDER_REGISTRY &&
+      typeof window.QUOTE_BUILDER_REGISTRY.register === 'function'
+    ) {
+      window.QUOTE_BUILDER_REGISTRY.register(name, module);
+    } else {
+      window.QUOTE_BUILDER_PENDING_MODULES =
+        window.QUOTE_BUILDER_PENDING_MODULES || [];
+      window.QUOTE_BUILDER_PENDING_MODULES.push({ name, module });
+    }
   }
 
-  getTotalVisibleStepsCount() {
-    return this.visibleSteps.length;
-  }
-
-  getCurrentStepDisplayIndex() {
-    return this.currentStepIndex + 1;
-  }
-}
+  window.QuoteBuilderStepManager = QuoteBuilderStepManager;
+  registerModule('stepManager', QuoteBuilderStepManager);
+})();
