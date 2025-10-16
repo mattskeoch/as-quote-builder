@@ -285,9 +285,16 @@
   };
 </script>
 
-<script defer src="{{ 'quoteBuilderSelectionManager.js' | asset_url }}"></script>
-<script defer src="{{ 'quoteBuilderStepManager.js' | asset_url }}"></script>
-<script defer src="{{ 'quoteBuilderUIManager.js' | asset_url }}"></script>
+<script>
+  window.QUOTE_BUILDER_ASSETS = Object.assign({}, window.QUOTE_BUILDER_ASSETS, {
+    selectionManager: "{{ 'quoteBuilderSelectionManager.js' | asset_url }}",
+    stepManager: "{{ 'quoteBuilderStepManager.js' | asset_url }}",
+    uiManager: "{{ 'quoteBuilderUIManager.js' | asset_url }}",
+  });
+</script>
+<script defer src="{{ 'quoteBuilderSelectionManager.js' | asset_url }}" data-qb-module="selectionManager"></script>
+<script defer src="{{ 'quoteBuilderStepManager.js' | asset_url }}" data-qb-module="stepManager"></script>
+<script defer src="{{ 'quoteBuilderUIManager.js' | asset_url }}" data-qb-module="uiManager"></script>
 <script defer src="{{ 'quoteBuilderApp.js' | asset_url }}"></script>
 
 <style>

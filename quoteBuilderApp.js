@@ -1,19 +1,148 @@
 (function () {
-  const SelectionManager = window.QuoteBuilderSelectionManager;
-  const StepManager = window.QuoteBuilderStepManager;
-  const UIManager = window.QuoteBuilderUIManager;
+  const DEPENDENCIES = [
+    { key: 'selectionManager', global: 'QuoteBuilderSelectionManager' },
+    { key: 'stepManager', global: 'QuoteBuilderStepManager' },
+    { key: 'uiManager', global: 'QuoteBuilderUIManager' },
+  ];
 
-  if (!SelectionManager || !StepManager || !UIManager) {
-    // eslint-disable-next-line no-console
-    console.error(
-      '[QuoteBuilderApp] Missing dependencies',
-      {
-        hasSelectionManager: Boolean(SelectionManager),
-        hasStepManager: Boolean(StepManager),
-        hasUIManager: Boolean(UIManager),
-      }
+  const MODULE_LOAD_TIMEOUT = 4000;
+
+  let SelectionManager;
+  let StepManager;
+  let UIManager;
+
+  const modulePromises = {};
+  let dependenciesPromise = null;
+  let dependenciesCache = null;
+
+  function getAssetUrl(key) {
+    const assets = window.QUOTE_BUILDER_ASSETS || {};
+    if (assets[key]) {
+      return assets[key];
+    }
+    const script = document.querySelector(
+      'script[data-qb-module="' + key + '"]'
     );
-    return;
+    return script ? script.getAttribute('src') : null;
+  }
+
+  function loadScriptForModule(key, globalName) {
+    const existing = window[globalName];
+    if (existing) {
+      return Promise.resolve(existing);
+    }
+
+    if (modulePromises[key]) {
+      return modulePromises[key];
+    }
+
+    const src = getAssetUrl(key);
+    if (!src) {
+      return Promise.reject(
+        new Error('[QuoteBuilderApp] Missing asset URL for ' + globalName)
+      );
+    }
+
+    modulePromises[key] = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.defer = true;
+      script.async = false;
+      script.setAttribute('data-qb-module', key);
+
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(
+          new Error(
+            '[QuoteBuilderApp] Timeout loading dependency ' + globalName
+          )
+        );
+      }, MODULE_LOAD_TIMEOUT);
+
+      function cleanup() {
+        window.clearTimeout(timeoutId);
+        script.removeEventListener('load', handleLoad);
+        script.removeEventListener('error', handleError);
+      }
+
+      function handleLoad() {
+        cleanup();
+        const loaded = window[globalName];
+        if (loaded) {
+          resolve(loaded);
+        } else {
+          reject(
+            new Error(
+              '[QuoteBuilderApp] Dependency ' + globalName + ' failed to register'
+            )
+          );
+        }
+      }
+
+      function handleError() {
+        cleanup();
+        reject(
+          new Error(
+            '[QuoteBuilderApp] Failed to load dependency ' + globalName
+          )
+        );
+      }
+
+      script.addEventListener('load', handleLoad);
+      script.addEventListener('error', handleError);
+
+      document.head.appendChild(script);
+    })
+      .catch((error) => {
+        delete modulePromises[key];
+        throw error;
+      })
+      .then((mod) => {
+        delete modulePromises[key];
+        return mod;
+      });
+
+    return modulePromises[key];
+  }
+
+  function ensureDependencies() {
+    if (dependenciesCache) {
+      return Promise.resolve(dependenciesCache);
+    }
+
+    if (dependenciesPromise) {
+      return dependenciesPromise;
+    }
+
+    dependenciesPromise = Promise.all(
+      DEPENDENCIES.map((dependency) =>
+        loadScriptForModule(dependency.key, dependency.global)
+          .then((mod) => ({ key: dependency.key, module: mod }))
+          .catch((error) => {
+            // eslint-disable-next-line no-console
+            console.error('[QuoteBuilderApp] Missing dependency', {
+              dependency: dependency.global,
+              error,
+            });
+            throw error;
+          })
+      )
+    )
+      .then((results) => {
+        const mapped = {};
+        results.forEach((result) => {
+          mapped[result.key] = result.module;
+        });
+        dependenciesCache = mapped;
+        dependenciesPromise = null;
+        return mapped;
+      })
+      .catch((error) => {
+        dependenciesPromise = null;
+        throw error;
+      });
+
+    return dependenciesPromise;
   }
   const STORAGE_KEY = 'autospec:quote-builder:v1';
   const ENRICHMENT_CACHE_PREFIX = 'autospec:qb:enrich:';
@@ -852,9 +981,27 @@
   document.addEventListener('DOMContentLoaded', () => {
     const config = window.QUOTE_BUILDER_BOOTSTRAP;
     if (!config) return;
-    const app = new QuoteBuilderApp(config);
-    app.init();
-    window.quoteBuilderApp = app;
+
+    ensureDependencies()
+      .then((modules) => {
+        SelectionManager = modules.selectionManager;
+        StepManager = modules.stepManager;
+        UIManager = modules.uiManager;
+
+        const app = new QuoteBuilderApp(config);
+        app.init();
+        window.quoteBuilderApp = app;
+      })
+      .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('[QuoteBuilderApp] Unable to start application', error);
+
+        const mount = document.getElementById('quoteBuilderMain');
+        if (mount && !mount.innerHTML.trim()) {
+          mount.innerHTML =
+            '<div class="qb-step qb-step--error"><p>We were unable to load the quote builder. Please refresh the page and try again.</p></div>';
+        }
+      });
   });
 
   window.QuoteBuilderApp = QuoteBuilderApp;
