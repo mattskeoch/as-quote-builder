@@ -1,0 +1,642 @@
+<div class="quote-builder-header-bar">
+  <a href="https://autospec4x4.com.au/">
+    <img src="https://autospec4x4.com.au/cdn/shop/files/AutoSpec_4x4_-_Red_White.png?v=1744095667&width=520"
+      alt="Autospec 4x4 Logo" class="quote-builder-logo">
+  </a>
+</div>
+
+<div class="quote-builder-wrapper">
+  <div class="quote-builder-main-content">
+    <div class="quote-builder-header">
+      <div class="quote-builder-progress">
+        <div class="progress-bar-outline">
+          <div class="progress-bar-fill" id="quoteBuilderProgressBarFill"></div>
+        </div>
+        <div class="step-counter" id="quoteBuilderStepCounter">Step 1 / 3</div>
+      </div>
+    </div>
+
+    <div id="quoteBuilderStepsContainer">
+      <!-- Steps will be dynamically rendered here -->
+    </div>
+
+    <div id="quoteBuilderRunningTotalWrapper" style="margin-top: 20px;">
+      <h3><span id="quoteBuilderRunningTotal">$0.00</span></h3>
+    </div>
+
+    <div class="quote-builder-navigation">
+      <button class="button button--secondary" id="quoteBuilderPrevStepButton" style="display: none;">Previous</button>
+      <button class="button" id="quoteBuilderNextStepButton" disabled>Next</button>
+      <button class="button" id="quoteBuilderGetQuoteButtonMain" style="display: none;">Get Quote</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /*
+    === Data-driven Quote Builder v2 schema ===
+    - Steps are declarative with: renderType, selectionMode, required, visibleWhen rules, and (for forms) fields/fieldsRequired
+    - Products reference stepId; compatibility via compatibleVehicles; variantIdByStore handles store routing.
+  */
+
+  window.QUOTE_BUILDER_DATA = {
+    steps: [
+      {
+        id: 'vehicle_select',
+        title: 'Choose Your Vehicle',
+        subtitle: 'You can give us more details on your vehicle in a later step',
+        renderType: 'vehicle-form',        // custom renderer for make/model/year
+        selectionMode: 'form',
+        required: true
+      },
+      {
+        id: 'build_type',
+        title: 'Select Your Build Type',
+        renderType: 'options-grid',
+        selectionMode: 'single',
+        required: true
+      },
+      {
+        id: 'tray_select',
+        title: 'Select Your Tray',
+        renderType: 'options-grid',
+        selectionMode: 'multiple',
+        required: true
+      },
+      {
+        id: 'canopy_select',
+        title: 'Select Your Canopy',
+        renderType: 'options-grid',
+        selectionMode: 'single',
+        required: true,
+        visibleWhen: {                      // show only when Tray & Canopy chosen
+          requires: { stepId: 'build_type', equals: 'build_tray_canopy' }
+        }
+      },
+      {
+        id: 'traysides_select',
+        title: 'Select Your Tray Sides',
+        subtitle: 'Tray sides are estimated based on your configuration. Final cost will be confirmed by our sales team.',
+        renderType: 'options-grid',
+        selectionMode: 'single',
+        required: false
+      },
+      {
+        id: 'internal_accessories',
+        title: 'Internal Accessories',
+        renderType: 'options-grid',
+        selectionMode: 'multiple',
+        required: false,
+        visibleWhen: {
+          requires: { stepId: 'build_type', equals: 'build_tray_canopy' }
+        }
+      },
+      {
+        id: 'twelve_volt_package',
+        title: '12 Volt Package',
+        renderType: 'options-grid',
+        selectionMode: 'single',
+        required: false,
+        visibleWhen: {
+          requires: { stepId: 'build_type', equals: 'build_tray_canopy' }
+        }
+      },
+      {
+        id: 'external_accessories',
+        title: 'External Accessories',
+        renderType: 'options-grid',
+        selectionMode: 'multiple',
+        required: false,
+        visibleWhen: {
+          requires: { stepId: 'build_type', equals: 'build_tray_canopy' }
+        }
+      },
+      {
+        id: 'customer_form',
+        title: 'Your Details',
+        renderType: 'form',
+        selectionMode: 'form',
+        required: true,
+        fieldsRequired: ['customerFirstName', 'customerLastName', 'customerEmail', 'customerPhone', 'customerState'],
+        fields: [
+          { id: 'customerFirstName', label: 'First Name', type: 'text', required: true },
+          { id: 'customerLastName', label: 'Last Name', type: 'text', required: true },
+          { id: 'customerEmail', label: 'Email', type: 'email', required: true },
+          { id: 'customerPhone', label: 'Phone Number', type: 'tel', required: true },
+          {
+            id: 'customerState', label: 'State', type: 'select', required: true,
+            options: ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
+          },
+          { id: 'customerNotes', label: 'Additional Notes (Optional)', type: 'textarea', required: false }
+        ]
+      }
+    ],
+
+    products: [
+      /* ===== Vehicle selections (ids used by compatibleVehicles) ===== */
+      { id: 'ford_ranger', make: 'Ford', model: 'Ranger', stepId: 'vehicle_select', price: 0, image: '' },
+      { id: 'toyota_hilux', make: 'Toyota', model: 'Hilux', stepId: 'vehicle_select', price: 0, image: '' },
+      { id: 'toyota_79', make: 'Toyota', model: '79 Series', stepId: 'vehicle_select', price: 0, image: '' },
+      { id: 'chevy_silverado', make: 'Chevy', model: 'Silverado', stepId: 'vehicle_select', price: 0, image: '' },
+
+      /* ===== Build type ===== */
+      { id: 'build_tray_only', name: 'Tray Only', stepId: 'build_type', price: 0, image: 'https://placehold.co/600x400?text=Autospec 4x4' },
+      { id: 'build_tray_canopy', name: 'Tray and Canopy', stepId: 'build_type', price: 0, image: 'https://placehold.co/600x400?text=Autospec 4x4' },
+
+      /* ===== Trays & tray extras ===== */
+      {
+        id: 'tray_1700_trundle_mb',
+        name: 'Aluminium Dual Cab Tray with Trundle - 1700mm - Matte Black',
+        stepId: 'tray_select',
+        compatibleVehicles: ['toyota_hilux', 'ford_ranger'],
+        variantIdByStore: { autospec: 50506304749888, linex: 44263190003887 }
+      },
+      {
+        id: 'at_tray_2200',
+        name: 'Aluminium American Truck Tray with Trundle - 2200mm - Matte Black',
+        stepId: 'tray_select',
+        compatibleVehicles: ['chevy_silverado'],
+        variantIdByStore: { autospec: 50506402103616, linex: 45034594402479 }
+      },
+      {
+        id: 'headboard',
+        name: 'Aluminium Headboard - Matte Black',
+        stepId: 'tray_select',
+        compatibleVehicles: ['toyota_hilux', 'ford_ranger'],
+        variantIdByStore: { autospec: 50506306814272, linex: 44263211073711 }
+      },
+      {
+        id: 'at_headboard',
+        name: 'American Truck Aluminium Headboard - Matte Black',
+        stepId: 'tray_select',
+        compatibleVehicles: ['chevy_silverado'],
+        variantIdByStore: { autospec: 50506292494656, linex: 45034638999727 }
+      },
+      {
+        id: '28l_water_tank',
+        name: '28L Water Tank for Headboard',
+        stepId: 'tray_select',
+        compatibleVehicles: ['toyota_hilux', 'ford_ranger'],
+        variantIdByStore: { autospec: 50740064256320, linex: 45419049189551 }
+      },
+      {
+        id: '37l_water_tank',
+        name: '37L American Truck Water Tank for Headboard',
+        stepId: 'tray_select',
+        compatibleVehicles: ['chevy_silverado'],
+        variantIdByStore: { autospec: 50833123803456, linex: 45490399740079 }
+      },
+      {
+        id: '48l_water_tank',
+        name: '48L American Truck Water Tank for Headboard',
+        stepId: 'tray_select',
+        compatibleVehicles: ['chevy_silverado'],
+        variantIdByStore: { autospec: 50506292494656, linex: 45034648076463 }
+      },
+      {
+        id: 'water_pump',
+        name: 'Water Pump',
+        stepId: 'tray_select',
+        variantIdByStore: { autospec: 50506353606976, linex: 44268155535535 }
+      },
+
+      /* ===== Canopies ===== */
+      {
+        id: 'canopy_1000',
+        name: 'Aluminium Canopy 1000mm - Matte Black',
+        stepId: 'canopy_select',
+        compatibleVehicles: ['toyota_hilux', 'ford_ranger'],
+        variantIdByStore: { autospec: 50506314940736, linex: 44263224770735 }
+      },
+      {
+        id: 'canopy_1400',
+        name: 'Aluminium Canopy 1400mm - Matte Black',
+        stepId: 'canopy_select',
+        compatibleVehicles: ['toyota_hilux', 'ford_ranger'],
+        variantIdByStore: { autospec: 50506313105728, linex: 44263224541359 }
+      },
+      {
+        id: 'canopy_1700',
+        name: 'Aluminium Canopy 1700mm - Matte Black',
+        stepId: 'canopy_select',
+        compatibleVehicles: ['toyota_hilux', 'ford_ranger'],
+        variantIdByStore: { autospec: 50506312974656, linex: 44263222640815 }
+      },
+      {
+        id: '79_canopy_1700',
+        name: 'Aluminium 79 Series Canopy 1700mm - Matte Black',
+        stepId: 'canopy_select',
+        compatibleVehicles: ['toyota_79'],
+        variantIdByStore: { autospec: 50506317431104, linex: 44263228375215 }
+      },
+      {
+        id: 'at_canopy_1700',
+        name: '1700mm Aluminium American Truck Canopy - Black',
+        stepId: 'canopy_select',
+        compatibleVehicles: ['chevy_silverado'],
+        variantIdByStore: { autospec: 50506297639232, linex: 45034745036975 }
+      },
+
+      /* ===== Tray sides ===== */
+      {
+        id: 'tray_sides_estimate',
+        name: 'Tray Sides',
+        stepId: 'traysides_select',
+        variantIdByStore: { autospec: 50909597630784, linex: 45721845006511 }
+      },
+      {
+        id: 'tray_sides_none',
+        name: 'No Tray Sides Required',
+        stepId: 'traysides_select',
+        price: 0,
+        image: 'https://placehold.co/600x400?text=No+Tray+Sides'
+      },
+
+      /* ===== Internal accessories ===== */
+      { id: 'pantry_large', name: 'Large Touring Pantry (200mm Wide)', stepId: 'internal_accessories', price: 599, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'pantry_slim', name: 'Slim Touring Pantry (125mm Wide)', stepId: 'internal_accessories', price: 430, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'pantry_micro_slide', name: 'Micro 125mm Pantry Slide For Use With Kitchen Unit', stepId: 'internal_accessories', price: 399, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'fridge_slide_80', name: 'Fridge Slide - 80L', stepId: 'internal_accessories', price: 489, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'fridge_slide_60', name: 'Fridge Slide - 60L', stepId: 'internal_accessories', price: 429, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'fridge_slide_40_50', name: 'AS Fridge Slide - 40/50L', stepId: 'internal_accessories', price: 359, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'fridge_cage_85', name: '85L Fridge Cage (Bushman)', stepId: 'internal_accessories', price: 599, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'fridge_cage_65', name: 'AS 65L Fridge Cage (Bushman)', stepId: 'internal_accessories', price: 375, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'touring_kitchen', name: 'Slide-Out Touring Kitchen Unit', stepId: 'internal_accessories', price: 999, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'drawer_small', name: 'Small Aluminium Storage Drawer – Heavy Duty Slides', stepId: 'internal_accessories', price: 699, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'drawer_medium', name: 'Medium Aluminium Storage Drawer – Heavy Duty Slides', stepId: 'internal_accessories', price: 749, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'fridge_table', name: '79 Series Fridge Table', stepId: 'internal_accessories', price: 499, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'divider_1400', name: '1400mm Canopy Divider - Matte Black', stepId: 'internal_accessories', price: 250, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'divider_1000', name: '1000mm Canopy Divider - Matte Black', stepId: 'internal_accessories', price: 250, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'divider_1700', name: '1700mm Canopy Divider - Matte Black', stepId: 'internal_accessories', price: 250, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'divider_1700_case', name: '1700mm Canopy Divider to suit with 12 Volt Case - Matte Black', stepId: 'internal_accessories', price: 250, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'divider_1400_case', name: '1400mm Canopy Divider to suit with 12 Volt Case - Matte Black', stepId: 'internal_accessories', price: 250, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'divider_1000_case', name: '1000mm Canopy Divider to suit with 12 Volt Case - Matte Black', stepId: 'internal_accessories', price: 250, image: 'https://placehold.co/600x400?text=Autospec' },
+
+      /* ===== 12V packages ===== */
+      { id: '12v_tourer_200ah', name: 'The Tourer 12 Volt Package with 200Ah Battery', stepId: 'twelve_volt_package', price: 5499, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: '12v_weekender_100ah', name: 'The Weekender 12 Volt Package with 100Ah Battery', stepId: 'twelve_volt_package', price: 4199, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: '12v_weekender_200ah', name: 'The Weekender 12 Volt Package with 200Ah Battery', stepId: 'twelve_volt_package', price: 4799, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: '12v_tourer_300ah', name: 'The Tourer 12 Volt Package with 300Ah Battery', stepId: 'twelve_volt_package', price: 6297.85, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: '12v_tourer_200ah_slim', name: '79 Series Tourer 12 Volt Package with 200Ah Slimline Battery', stepId: 'twelve_volt_package', price: 5299, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: '12v_weekender_300ah', name: 'The Weekender 12 Volt Package with 300Ah Battery', stepId: 'twelve_volt_package', price: 5601.86, image: 'https://placehold.co/600x400?text=Autospec' },
+
+      /* ===== External accessories ===== */
+      { id: 'ext_spare_carrier', name: 'Spare Wheel Carrier - Matte Black', stepId: 'external_accessories', price: 289, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_jerry_lockable', name: 'Lockable Jerry Can Holder - Matte Black', stepId: 'external_accessories', price: 299, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_jerry_standard', name: 'Jerry Can Holder - Matte Black', stepId: 'external_accessories', price: 189, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_rear_ladder', name: 'AS Rear Ladder - Matte Black', stepId: 'external_accessories', price: 369, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_rear_hoop_79', name: 'AS Rear Hoop Rear Hoop 79 Series (975mm Height)', stepId: 'external_accessories', price: 399, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_rear_hoop_usa', name: 'Rear Hoop for American Trucks (900mm Height)', stepId: 'external_accessories', price: 430.8, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_ladder_rack', name: 'AS Ladder Rack - Matte Black', stepId: 'external_accessories', price: 809, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_spoiler_one_piece', name: 'One Piece Spoiler - Matte Black', stepId: 'external_accessories', price: 139, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_spoiler_usa', name: 'One Piece Spoiler for American Trucks - Matte Black', stepId: 'external_accessories', price: 139, image: 'https://placehold.co/600x400?text=Autospec' },
+      { id: 'ext_spoiler_two_piece', name: 'Two Piece Spoiler - Matte Black', stepId: 'external_accessories', price: 89, image: 'https://placehold.co/600x400?text=Autospec' }
+    ]
+  };
+</script>
+
+{ { 'quoteBuilderUIManager.js' | asset_url | script_tag } }
+{ { 'quoteBuilderSelectionManager.js' | asset_url | script_tag } }
+{ { 'quoteBuilderStepManager.js' | asset_url | script_tag } }
+{ { 'quoteBuilderApp.js' | asset_url | script_tag } }
+
+{% if request.page_type == 'page' and page.handle == 'quote-builder' %}
+<style>
+  #sections--24229447926080__promo_strip_JT9WaR,
+  #shopify-section-sections--24229447926080__header,
+  #shopify-section-sections--24229447926080__announcement,
+  #shopify-section-sections--24229447795008__icons-with-text,
+  #shopify-section-sections--24229447795008__footer,
+  #chat-button,
+  .google-rating-wrapper {
+    display: none !important;
+  }
+</style>
+{% endif %}
+
+<style>
+  /* (existing CSS unchanged) */
+  .quote-builder-header-bar {
+    background - color: #212121;
+    padding: 20px 0;
+    text-align: center;
+  }
+
+  .quote-builder-logo {
+    max - width: 280px;
+    height: auto;
+  }
+
+  .quote-builder-wrapper {
+    max - width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    gap: 20px;
+    font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+    background-color: #ffffff;
+    padding: 60px 20px 20px;
+    color: #333333;
+  }
+
+  .quote-builder-main-content {
+    flex: 3;
+    background-color: #ffffff;
+  }
+
+  .quote-builder-summary-sidebar {
+    flex: 1;
+    background-color: #f0f0f0;
+    padding: 20px;
+    border-radius: 4px;
+    min-width: 280px;
+    color: #1c1c1c;
+  }
+
+  .quote-builder-header {
+    margin - bottom: 25px;
+  }
+
+  .quote-builder-progress .progress-bar-outline {
+    background - color: #4A4A4A;
+    border-radius: 4px;
+    height: 12px;
+    overflow: hidden;
+  }
+
+  .quote-builder-progress .progress-bar-fill {
+    background - color: #b0101d;
+    height: 100%;
+    width: 0%;
+    transition: width 0.4s ease;
+  }
+
+  .quote-builder-progress .step-counter {
+    font - size: 0.9em;
+    color: #555;
+    text-align: right;
+    margin-top: 8px;
+  }
+
+  .step-title {
+    margin - bottom: 16px;
+    text-align: center;
+  }
+
+  .step-subtitle {
+    margin - top: -0.8em;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+
+  #quoteBuilderStepsContainer {
+    min - height: 300px;
+  }
+
+  .options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 40px;
+    margin-bottom: 60px;
+  }
+
+  .quote-builder-step[data-step-id="internal_accessories"] .options-grid,
+  .quote-builder-step[data-step-id="external_accessories"] .options-grid {
+    grid - template - columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+
+  .option-card {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 15px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, box-shadow .2s, transform .2s;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .option-card:hover {
+    border - color: #b0101d;
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, .1);
+  }
+
+  .option-card.selected {
+    border - color: #b0101d;
+    box-shadow: 0 0 0 3px rgba(217, 0, 0, .5);
+    background-color: #fff5f5;
+  }
+
+  .option-card img {
+    max - width: 100%;
+    height: 240px;
+    object-fit: cover;
+    margin-bottom: 15px;
+    border-radius: 3px;
+    background-color: #f9f9f9;
+  }
+
+  .option-name {
+    font - weight: bold;
+    margin-bottom: 8px;
+    font-size: 1em;
+    flex-grow: 1;
+    color: #1c1c1c;
+  }
+
+  .option-price {
+    font - size: 1.2em;
+    color: #b0101d;
+    font-weight: 800;
+    margin-bottom: 15px;
+  }
+
+  .option-select-button {
+    background - color: #333;
+    color: #fff;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-top: auto;
+    text-transform: uppercase;
+    font-weight: bold;
+    font-size: .9em;
+    transition: background-color .2s;
+  }
+
+  .option-card.selected .option-select-button {
+    background - color: #b0101d;
+    color: #fff;
+  }
+
+  .option-select-button:hover {
+    background - color: #1c1c1c;
+  }
+
+  #quoteBuilderRunningTotalWrapper {
+    text - align: center;
+    font-size: 1.3em;
+    font-weight: bold;
+    margin-top: 20px;
+  }
+
+  .quote-builder-navigation {
+    margin - top: 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .button {
+    padding: 12px 25px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-size: 1em;
+    font-weight: bold;
+    text-transform: uppercase;
+    transition: background-color .2s, opacity .2s;
+  }
+
+  #quoteBuilderNextStepButton,
+  #quoteBuilderGetQuoteButtonMain {
+    background - color: #b0101d;
+    color: #fff;
+  }
+
+  #quoteBuilderPrevStepButton {
+    background - color: #4A4A4A;
+    color: #fff;
+  }
+
+  .button[disabled] {
+    background - color: #999 !important;
+    opacity: .7;
+    cursor: not-allowed;
+  }
+
+  .vehicle-form {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .vehicle-select-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+
+  .vehicle-select-dropdown {
+    width: 100%;
+    max-width: 100%;
+    padding: 12px 15px;
+    font-size: 1em;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fff;
+    color: #333;
+    box-sizing: border-box;
+  }
+
+  @media (min-width: 768px) {
+    .vehicle - select - dropdown {
+      width: 50%;
+    }
+  }
+
+  .quote-builder-step form {
+    display: flex;
+    flex-direction: column;
+    max-width: 500px;
+    margin: 0 auto;
+    gap: 20px;
+    margin-top: 40px;
+    margin-bottom: 40px;
+  }
+
+  .quote-builder-step label {
+    font - weight: 600;
+    font-size: 14px;
+    margin-bottom: 5px;
+    display: block;
+  }
+
+  .quote-builder-step input,
+  .quote-builder-step textarea,
+  .quote-builder-step select {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+
+  .quote-builder-step textarea {
+    min - height: 100px;
+    resize: vertical;
+  }
+
+  .quote-confirmation {
+    text - align: center;
+    padding: 40px 20px;
+  }
+
+  .quote-summary-overview {
+    max - width: 700px;
+    margin: 40px auto;
+    text-align: left;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 30px;
+  }
+
+  .summary-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: .95em;
+  }
+
+  .summary-item:last-child {
+    border - bottom: none;
+  }
+
+  .summary-item-name {
+    color: #333;
+  }
+
+  .summary-item-price {
+    color: #1c1c1c;
+    font-weight: bold;
+  }
+
+  .summary-footer {
+    margin - top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid #ccc;
+  }
+
+  .summary-total {
+    font - size: 1.3em;
+    font-weight: bold;
+    color: #1c1c1c;
+    margin-bottom: 15px;
+  }
+
+  .summary-total span {
+    color: #b0101d;
+  }
+</style>
