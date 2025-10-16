@@ -257,10 +257,10 @@
   };
 </script>
 
-{{ 'quoteBuilderSelectionManager.js' | asset_url | script_tag: defer: true }}
-{{ 'quoteBuilderStepManager.js' | asset_url | script_tag: defer: true }}
-{{ 'quoteBuilderUIManager.js' | asset_url | script_tag: defer: true }}
-{{ 'quoteBuilderApp.js' | asset_url | script_tag: defer: true }}
+<script defer src="{{ 'quoteBuilderSelectionManager.js' | asset_url }}"></script>
+<script defer src="{{ 'quoteBuilderStepManager.js' | asset_url }}"></script>
+<script defer src="{{ 'quoteBuilderUIManager.js' | asset_url }}"></script>
+<script defer src="{{ 'quoteBuilderApp.js' | asset_url }}"></script>
 
 <style>
   :root {
