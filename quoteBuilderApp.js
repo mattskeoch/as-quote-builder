@@ -1,4 +1,20 @@
 (function () {
+  const SelectionManager = window.QuoteBuilderSelectionManager;
+  const StepManager = window.QuoteBuilderStepManager;
+  const UIManager = window.QuoteBuilderUIManager;
+
+  if (!SelectionManager || !StepManager || !UIManager) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '[QuoteBuilderApp] Missing dependencies',
+      {
+        hasSelectionManager: Boolean(SelectionManager),
+        hasStepManager: Boolean(StepManager),
+        hasUIManager: Boolean(UIManager),
+      }
+    );
+    return;
+  }
   const STORAGE_KEY = 'autospec:quote-builder:v1';
   const ENRICHMENT_CACHE_PREFIX = 'autospec:qb:enrich:';
   const VEHICLE_STEP_ID = 'vehicle_select';
@@ -129,14 +145,14 @@
         ? normaliseStore(this.queryParams.get('store'))
         : null;
 
-      this.selectionManager = new QuoteBuilderSelectionManager(this.products);
-      this.stepManager = new QuoteBuilderStepManager(
+      this.selectionManager = new SelectionManager(this.products);
+      this.stepManager = new StepManager(
         this.steps,
         this.products,
         this.selectionManager,
         { debug: this.debug }
       );
-      this.ui = new QuoteBuilderUIManager();
+      this.ui = new UIManager();
       this.formErrors = {};
       this.touchedFields = new Set();
       this.showAllErrors = false;
@@ -840,4 +856,6 @@
     app.init();
     window.quoteBuilderApp = app;
   });
+
+  window.QuoteBuilderApp = QuoteBuilderApp;
 })();
