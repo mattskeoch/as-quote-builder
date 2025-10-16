@@ -1,115 +1,263 @@
-// quoteBuilderSelectionManager.js
+(function () {
+  const VEHICLE_STEP_ID = 'vehicle_select';
+  const STORAGE_VERSION = '1.0.0';
 
-class QuoteBuilderSelectionManager {
-  constructor() {
-    this.selections = {};
-    this.totalPrice = 0;
-    this.totalWeight = 0;
+  function normaliseStore(store) {
+    return store === 'linex' ? 'linex' : 'autospec';
   }
 
-  updateSelection(stepId, product, selectionMode = 'single') {
-    if (selectionMode === 'multiple') {
-      if (!this.selections[stepId]) {
-        this.selections[stepId] = [];
+  class QuoteBuilderSelectionManager {
+    constructor(products) {
+      this.productsById = {};
+      (products || []).forEach((product) => {
+        if (product && product.id) {
+          this.productsById[product.id] = { ...product };
+        }
+      });
+      this.stepSelections = {};
+      this.formValues = {
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        state: '',
+        postcode: '',
+        notes: '',
+      };
+      this.meta = {
+        version: STORAGE_VERSION,
+      };
+    }
+
+    updateProducts(products) {
+      (products || []).forEach((product) => {
+        if (product && product.id) {
+          const existing = this.productsById[product.id] || {};
+          this.productsById[product.id] = {
+            ...existing,
+            ...product,
+          };
+        }
+      });
+    }
+
+    hydrate(state) {
+      if (!state || state.meta?.version !== STORAGE_VERSION) {
+        return;
       }
-      const index = this.selections[stepId].findIndex((p) => p.id === product.id);
-      if (index > -1) {
-        // Already selected → remove it
-        this.selections[stepId].splice(index, 1);
+
+      if (state.stepSelections && typeof state.stepSelections === 'object') {
+        this.stepSelections = {};
+        Object.keys(state.stepSelections).forEach((stepId) => {
+          const ids = Array.isArray(state.stepSelections[stepId])
+            ? state.stepSelections[stepId].filter((id) => this.productsById[id])
+            : [];
+          if (ids.length) {
+            this.stepSelections[stepId] = ids;
+          }
+        });
+      }
+
+      if (state.formValues && typeof state.formValues === 'object') {
+        this.formValues = {
+          ...this.formValues,
+          ...state.formValues,
+        };
+      }
+    }
+
+    getPersistedState() {
+      return {
+        stepSelections: this.stepSelections,
+        formValues: this.formValues,
+        meta: this.meta,
+      };
+    }
+
+    clearAll() {
+      this.stepSelections = {};
+      this.formValues = {
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        state: '',
+        postcode: '',
+        notes: '',
+      };
+    }
+
+    setFormValue(field, value) {
+      if (Object.prototype.hasOwnProperty.call(this.formValues, field)) {
+        this.formValues[field] = value;
+      }
+    }
+
+    setFormValues(values) {
+      if (!values) return;
+      Object.keys(this.formValues).forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(values, field)) {
+          this.formValues[field] = values[field] || '';
+        }
+      });
+    }
+
+    getFormValues() {
+      return { ...this.formValues };
+    }
+
+    toggleSelection(stepId, productId, mode) {
+      if (!productId || !this.productsById[productId]) {
+        return;
+      }
+      const selectionMode = mode || 'single';
+      const existing = this.stepSelections[stepId] || [];
+      const index = existing.indexOf(productId);
+
+      let nextSelection;
+      if (selectionMode === 'multi') {
+        if (index > -1) {
+          nextSelection = existing.filter((id) => id !== productId);
+        } else {
+          nextSelection = [...existing, productId];
+        }
       } else {
-        this.selections[stepId].push(product);
+        if (index > -1) {
+          nextSelection = [];
+        } else {
+          nextSelection = [productId];
+        }
       }
-    } else {
-      // Single selection
-      this.selections[stepId] = product ? product : undefined;
-    }
 
-    this.totalPrice = this.calculateTotalPrice();
-    this.totalWeight = this.calculateTotalWeight();
-  }
-
-  getSelectedProductForStep(stepId) {
-    return this.selections[stepId] || null;
-  }
-
-  calculateTotalPrice() {
-    let total = 0;
-    for (const value of Object.values(this.selections)) {
-      if (Array.isArray(value)) {
-        value.forEach((item) => {
-          total += item.price || 0;
-        });
-      } else if (value && value.price) {
-        total += value.price;
+      if (nextSelection && nextSelection.length) {
+        this.stepSelections[stepId] = nextSelection;
+      } else {
+        delete this.stepSelections[stepId];
       }
-    }
-    return total;
-  }
 
-  calculateTotalWeight() {
-    let total = 0;
-    for (const value of Object.values(this.selections)) {
-      if (Array.isArray(value)) {
-        value.forEach((item) => {
-          total += item.weight || 0;
-        });
-      } else if (value && value.weight) {
-        total += value.weight;
-      }
-    }
-    return total;
-  }
-
-  getQuoteDetails() {
-    return {
-      selections: { ...this.selections },
-      totalPrice: this.totalPrice,
-      totalWeight: this.totalWeight,
-    };
-  }
-
-  select(stepId, value) {
-    this.selections[stepId] = value;
-    this.totalPrice = this.calculateTotalPrice();
-    this.totalWeight = this.calculateTotalWeight();
-  }
-
-  isStepSelected(stepId, step) {
-    const selected = this.selections[stepId];
-
-    if (!selected) return !step?.required;
-
-    if (stepId === 'vehicle_select') {
-      return (
-        typeof selected === 'object' &&
-        selected.make &&
-        selected.model &&
-        selected.year &&
-        selected.id
+      const eventDetail = {
+        type: nextSelection && nextSelection.length ? 'selected' : 'deselected',
+        stepId,
+        productId,
+      };
+      window.dispatchEvent(
+        new CustomEvent('qb:event', { detail: eventDetail })
       );
     }
 
-    if (Array.isArray(selected)) {
-      return selected.length > 0;
+    setSelection(stepId, productIds) {
+      if (!productIds) {
+        delete this.stepSelections[stepId];
+        return;
+      }
+
+      const ids = Array.isArray(productIds) ? productIds : [productIds];
+      const filtered = ids.filter((id) => this.productsById[id]);
+      if (filtered.length) {
+        this.stepSelections[stepId] = filtered;
+      } else {
+        delete this.stepSelections[stepId];
+      }
     }
 
-    return true;
-  }
-
-  clearSelectionFrom(stepIdToClearFrom, allSteps) {
-    const index = allSteps.findIndex((s) => s.id === stepIdToClearFrom);
-    if (index === -1) return;
-
-    for (let i = index; i < allSteps.length; i++) {
-      delete this.selections[allSteps[i].id];
+    clearSelection(stepId) {
+      delete this.stepSelections[stepId];
     }
-    this.totalPrice = this.calculateTotalPrice();
-    this.totalWeight = this.calculateTotalWeight();
+
+    clearSelectionFromIndex(stepIndex, steps) {
+      if (!Array.isArray(steps)) return;
+      for (let i = stepIndex; i < steps.length; i += 1) {
+        const stepId = steps[i]?.id;
+        if (stepId) {
+          delete this.stepSelections[stepId];
+        }
+      }
+    }
+
+    getSelectedProductIds(stepId) {
+      return this.stepSelections[stepId] ? [...this.stepSelections[stepId]] : [];
+    }
+
+    getSelectedProducts(stepId) {
+      const ids = this.getSelectedProductIds(stepId);
+      return ids
+        .map((id) => this.productsById[id])
+        .filter((product) => !!product);
+    }
+
+    getAllSelectedProducts() {
+      const result = {};
+      Object.keys(this.stepSelections).forEach((stepId) => {
+        result[stepId] = this.getSelectedProducts(stepId);
+      });
+      return result;
+    }
+
+    isStepComplete(step) {
+      if (!step) return false;
+      if (step.selectionMode === 'none' || step.selectionMode === 'form') {
+        return true;
+      }
+      const selections = this.getSelectedProductIds(step.id);
+      if (!selections.length) {
+        return !step.required;
+      }
+      if (step.selectionMode === 'single') {
+        return selections.length === 1;
+      }
+      return selections.length > 0;
+    }
+
+    getVehicleId() {
+      const ids = this.getSelectedProductIds(VEHICLE_STEP_ID);
+      return ids.length ? ids[0] : null;
+    }
+
+    getTotals() {
+      const lineItems = [];
+      let totalPrice = 0;
+      let totalWeight = 0;
+
+      Object.keys(this.stepSelections).forEach((stepId) => {
+        this.stepSelections[stepId].forEach((productId) => {
+          const product = this.productsById[productId];
+          if (!product) return;
+          if (typeof product.price === 'number') {
+            totalPrice += product.price;
+          }
+          if (typeof product.weight === 'number') {
+            totalWeight += product.weight;
+          }
+          lineItems.push({ productId, stepId });
+        });
+      });
+
+      return {
+        lineItems,
+        totalPrice,
+        totalWeight,
+      };
+    }
+
+    getLineItemsForStore(store) {
+      const resolvedStore = normaliseStore(store);
+      const items = [];
+      Object.keys(this.stepSelections).forEach((stepId) => {
+        this.stepSelections[stepId].forEach((productId) => {
+          const product = this.productsById[productId];
+          if (!product) return;
+          const variantId = product.variantIdByStore?.[resolvedStore];
+          if (variantId) {
+            items.push({
+              variantId,
+              quantity: 1,
+            });
+          }
+        });
+      });
+      return items;
+    }
   }
 
-  clearSelection(stepId) {
-    delete this.selections[stepId];
-    this.totalPrice = this.calculateTotalPrice();
-    this.totalWeight = this.calculateTotalWeight();
-  }
-}
+  window.QuoteBuilderSelectionManager = QuoteBuilderSelectionManager;
+})();
