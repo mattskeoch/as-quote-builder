@@ -1,9 +1,77 @@
+
 (function () {
   const DEPENDENCIES = [
     { key: 'selectionManager', global: 'QuoteBuilderSelectionManager' },
     { key: 'stepManager', global: 'QuoteBuilderStepManager' },
     { key: 'uiManager', global: 'QuoteBuilderUIManager' },
   ];
+
+  function createRegistry() {
+    const modules = {};
+    const waiters = {};
+
+    function resolveWaiters(name, module) {
+      if (!waiters[name] || !waiters[name].length) return;
+      waiters[name].forEach((resolver) => {
+        try {
+          resolver(module);
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error('[QuoteBuilderApp] Module waiter failed', error);
+        }
+      });
+      delete waiters[name];
+    }
+
+    return {
+      register(name, module) {
+        if (!name || !module) return;
+        modules[name] = module;
+        resolveWaiters(name, module);
+      },
+      waitFor(name) {
+        if (name && modules[name]) {
+          return Promise.resolve(modules[name]);
+        }
+        return new Promise((resolve) => {
+          if (!name) {
+            resolve(null);
+            return;
+          }
+          if (!waiters[name]) {
+            waiters[name] = [];
+          }
+          waiters[name].push(resolve);
+        });
+      },
+      get(name) {
+        return name ? modules[name] || null : null;
+      },
+    };
+  }
+
+  function ensureRegistry() {
+    const existing = window.QUOTE_BUILDER_REGISTRY;
+    if (existing && typeof existing.register === 'function') {
+      return existing;
+    }
+
+    const registry = createRegistry();
+    window.QUOTE_BUILDER_REGISTRY = registry;
+
+    if (Array.isArray(window.QUOTE_BUILDER_PENDING_MODULES)) {
+      window.QUOTE_BUILDER_PENDING_MODULES.forEach((entry) => {
+        if (entry && entry.name && entry.module) {
+          registry.register(entry.name, entry.module);
+        }
+      });
+      window.QUOTE_BUILDER_PENDING_MODULES.length = 0;
+    }
+
+    return registry;
+  }
+
+  const moduleRegistry = ensureRegistry();
 
   const MODULE_LOAD_TIMEOUT = 4000;
 
@@ -26,8 +94,16 @@
     return script ? script.getAttribute('src') : null;
   }
 
+  function getRegisteredModule(key, globalName) {
+    const fromRegistry = moduleRegistry.get(key);
+    if (fromRegistry) {
+      return fromRegistry;
+    }
+    return window[globalName] || null;
+  }
+
   function loadScriptForModule(key, globalName) {
-    const existing = window[globalName];
+    const existing = getRegisteredModule(key, globalName);
     if (existing) {
       return Promise.resolve(existing);
     }
@@ -36,21 +112,28 @@
       return modulePromises[key];
     }
 
-    const src = getAssetUrl(key);
-    if (!src) {
-      return Promise.reject(
-        new Error('[QuoteBuilderApp] Missing asset URL for ' + globalName)
-      );
-    }
-
     modulePromises[key] = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.defer = true;
-      script.async = false;
-      script.setAttribute('data-qb-module', key);
+      let resolved = false;
+      let script = null;
+
+      const initialCheck = getRegisteredModule(key, globalName);
+      if (initialCheck) {
+        resolved = true;
+        resolve(initialCheck);
+        return;
+      }
+
+      const src = getAssetUrl(key);
+      if (!src) {
+        reject(
+          new Error('[QuoteBuilderApp] Missing asset URL for ' + globalName)
+        );
+        return;
+      }
 
       const timeoutId = window.setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
         cleanup();
         reject(
           new Error(
@@ -61,25 +144,21 @@
 
       function cleanup() {
         window.clearTimeout(timeoutId);
-        script.removeEventListener('load', handleLoad);
-        script.removeEventListener('error', handleError);
-      }
-
-      function handleLoad() {
-        cleanup();
-        const loaded = window[globalName];
-        if (loaded) {
-          resolve(loaded);
-        } else {
-          reject(
-            new Error(
-              '[QuoteBuilderApp] Dependency ' + globalName + ' failed to register'
-            )
-          );
+        if (script) {
+          script.removeEventListener('error', handleError);
         }
       }
 
+      function finish(module) {
+        if (resolved) return;
+        resolved = true;
+        cleanup();
+        resolve(module);
+      }
+
       function handleError() {
+        if (resolved) return;
+        resolved = true;
         cleanup();
         reject(
           new Error(
@@ -88,10 +167,34 @@
         );
       }
 
-      script.addEventListener('load', handleLoad);
+      moduleRegistry
+        .waitFor(key)
+        .then((module) => {
+          if (!resolved) {
+            finish(module);
+          }
+        })
+        .catch(() => {
+          if (!resolved) {
+            handleError();
+          }
+        });
+
+      script = document.querySelector('script[data-qb-module="' + key + '"]');
+      if (!script) {
+        script = document.createElement('script');
+        script.src = src;
+        script.defer = true;
+        script.setAttribute('data-qb-module', key);
+        document.head.appendChild(script);
+      }
+
       script.addEventListener('error', handleError);
 
-      document.head.appendChild(script);
+      const maybeRegistered = getRegisteredModule(key, globalName);
+      if (maybeRegistered) {
+        finish(maybeRegistered);
+      }
     })
       .catch((error) => {
         delete modulePromises[key];

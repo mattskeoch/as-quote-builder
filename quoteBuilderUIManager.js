@@ -593,5 +593,20 @@
     }
   }
 
+  function registerModule(name, module) {
+    if (!name || !module) return;
+    if (
+      window.QUOTE_BUILDER_REGISTRY &&
+      typeof window.QUOTE_BUILDER_REGISTRY.register === 'function'
+    ) {
+      window.QUOTE_BUILDER_REGISTRY.register(name, module);
+    } else {
+      window.QUOTE_BUILDER_PENDING_MODULES =
+        window.QUOTE_BUILDER_PENDING_MODULES || [];
+      window.QUOTE_BUILDER_PENDING_MODULES.push({ name, module });
+    }
+  }
+
   window.QuoteBuilderUIManager = QuoteBuilderUIManager;
+  registerModule('uiManager', QuoteBuilderUIManager);
 })();
