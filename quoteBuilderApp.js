@@ -74,6 +74,57 @@
   const moduleRegistry = ensureRegistry();
 
   const MODULE_LOAD_TIMEOUT = 4000;
+  const API_DEFAULT_BASE = '/api/quote-builder';
+  const ABSOLUTE_URL_REGEX = /^https?:\/\//i;
+
+  function isAbsoluteUrl(url) {
+    return ABSOLUTE_URL_REGEX.test(url || '');
+  }
+
+  function normaliseApiBase(input) {
+    if (!input || typeof input !== 'string') {
+      return API_DEFAULT_BASE;
+    }
+    let trimmed = input.trim();
+    if (!trimmed) {
+      return API_DEFAULT_BASE;
+    }
+    if (isAbsoluteUrl(trimmed)) {
+      return trimmed.replace(/\/+$/, '');
+    }
+    if (!trimmed.startsWith('/')) {
+      trimmed = `/${trimmed}`;
+    }
+    return trimmed.replace(/\/+$/, '') || API_DEFAULT_BASE;
+  }
+
+  function buildApiUrl(base, path) {
+    const cleanBase = normaliseApiBase(base);
+    if (!path) {
+      return cleanBase;
+    }
+    const cleanPath = path.trim();
+    if (!cleanPath) {
+      return cleanBase;
+    }
+    if (isAbsoluteUrl(cleanPath)) {
+      return cleanPath;
+    }
+    if (cleanPath.startsWith('/')) {
+      return cleanPath;
+    }
+    return `${cleanBase}/${cleanPath.replace(/^\/+/, '')}`;
+  }
+
+  function getRootElement() {
+    return document.getElementById('quoteBuilderApp');
+  }
+
+  function getDatasetValue(name) {
+    const root = getRootElement();
+    if (!root) return '';
+    return root.dataset ? root.dataset[name] || '' : '';
+  }
 
   let SelectionManager;
   let StepManager;
@@ -394,7 +445,32 @@
       this.initialised = false;
       this.isSubmitting = false;
 
+      const datasetApiBase = getDatasetValue('apiBase');
+      const datasetEnrichPath = getDatasetValue('apiEnrich');
+      const datasetDraftPath = getDatasetValue('apiDraft');
+      this.apiConfig = {
+        baseUrl: normaliseApiBase(
+          this.config.apiBaseUrl || datasetApiBase || API_DEFAULT_BASE
+        ),
+        enrichPath: this.config.apiEnrichPath || datasetEnrichPath || 'enrich',
+        draftOrderPath: this.config.apiDraftOrderPath || datasetDraftPath || 'draft-order',
+      };
+
       this.bindUiHandlers();
+    }
+
+    getApiUrl(key) {
+      if (!key) {
+        return this.apiConfig.baseUrl;
+      }
+      switch (key) {
+        case 'enrich':
+          return buildApiUrl(this.apiConfig.baseUrl, this.apiConfig.enrichPath);
+        case 'draftOrder':
+          return buildApiUrl(this.apiConfig.baseUrl, this.apiConfig.draftOrderPath);
+        default:
+          return buildApiUrl(this.apiConfig.baseUrl, key);
+      }
     }
 
     logDebug(message, payload) {
@@ -668,16 +744,21 @@
         };
         this.render();
         try {
-          const response = await fetch('/api/quote-builder/enrich', {
+          const enrichUrl = this.getApiUrl('enrich');
+          const response = await fetch(enrichUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
             body: JSON.stringify({
               store: targetStore,
               variantIds: missing.map((id) => Number(id)),
             }),
           });
           if (!response.ok) {
-            throw new Error('Failed to load product pricing');
+            const error = new Error('Failed to load product pricing');
+            error.status = response.status;
+            error.endpoint = enrichUrl;
+            throw error;
           }
           const data = await response.json();
           fetched = data.variants || {};
@@ -691,7 +772,11 @@
             status: 'error',
             message: 'We could not refresh pricing. Showing saved values.',
           };
-          this.logDebug('Enrichment error', error);
+          this.logDebug('Enrichment error', {
+            error,
+            endpoint: this.getApiUrl('enrich'),
+            store: targetStore,
+          });
         }
       }
 
@@ -943,14 +1028,18 @@
       this.render();
 
       try {
-        const response = await fetch('/api/quote-builder/draft-order', {
+        const draftUrl = this.getApiUrl('draftOrder');
+        const response = await fetch(draftUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           credentials: 'same-origin',
           body: JSON.stringify(payload),
         });
         if (!response.ok) {
-          throw new Error('Draft order request failed');
+          const error = new Error('Draft order request failed');
+          error.status = response.status;
+          error.endpoint = draftUrl;
+          throw error;
         }
         const data = await response.json();
         this.statusMessage = null;
@@ -976,7 +1065,11 @@
           status: 'error',
           message: 'We could not create a draft order. Please try again.',
         };
-        this.logDebug('Draft order error', error);
+        this.logDebug('Draft order error', {
+          error,
+          endpoint: this.getApiUrl('draftOrder'),
+          store: this.currentStore,
+        });
         this.isSubmitting = false;
         this.render();
       }

@@ -1,4 +1,4 @@
-<section id="quoteBuilderApp" class="qb" aria-label="Autospec Quote Builder">
+<section id="quoteBuilderApp" class="qb" aria-label="Autospec Quote Builder" data-api-base="{{ routes.root }}api/quote-builder" data-api-enrich="enrich" data-api-draft="draft-order">
   <div class="qb__header" role="banner">
     <div class="qb__brand">
       <a href="https://autospec4x4.com.au/" class="qb__brand-link" aria-label="Autospec 4x4 home">
@@ -22,6 +22,7 @@
 
 <script>
   window.QUOTE_BUILDER_BOOTSTRAP = {
+    apiBaseUrl: '{{ routes.root }}api/quote-builder',
     steps: [
       {
         id: 'vehicle_select',
